@@ -10,12 +10,6 @@ const asyncLib = require('async');
 
 /* Variables */
 
-//array of objects
-// id -- > quiz id
-// question --> quiz question text
-// answer --> quiz answer
-var quizId = [];
-
 /* View available course object functions */
 // https://github.com/byuitechops/d2l-to-canvas-conversion-tool/blob/master/documentation/classFunctions.md
 
@@ -50,27 +44,51 @@ module.exports = (course, stepCallback) => {
     }
 
     function filterQuizQuestions(course, quiz_items, functionCallback) {
-        var questionType = [
+        var questionTypes = [
             'matching_question'
         ];
 
-        asyncLib.eachLimit(quiz_items, 3, (item, eachCallback) => {
-            canvas.getQuizQuestions(course.info.canvasOU, quiz_items, (getErr, questions) => {
+        asyncLib.eachLimit(quiz_items, 1, (item, eachCallback) => {
+            canvas.getQuizQuestions(course.info.canvasOU, item.id, (getErr, questions) => {
                 if (getErr) {
                     functionCallback(getErr);
                     return;
                 } else {
-                    questions.forEach(question => {
-                        if (questionType.includes(question.question_type)) {
-                            var obj = {
-                                'id': question.id,
-                                'question': question.question_text,
-                                'answer': question.answer
-                            };
+                    var a = [];
+                    asyncLib.each(questions, (q, innerEachCallBack) => {
+                        if (questionTypes.includes(q.question_type)) {
+                            //console.log(`Q: ${JSON.stringify(q)}`);
+                            q.answers.forEach(index => {
+                                var obj = {
+                                    'answer_text':index.text,
+                                    'id': index.id,
+                                    'answer_match_left': index.right,
+                                    'matching_answer_right': index.left
+                                }
 
-                            quizId.push(obj);
+                                a.push(obj);
+                            });
+
+                            canvas.put(`/api/v1/courses/${course.info.canvasOU}/quizzes/${item.id}/questions/${q.id}`, {
+                                'question': {
+                                    'answers': a
+                                },
+                            },
+                            (putErr, results) => {
+                                if (putErr) {
+                                    innerEachCallBack(putErr);
+                                    return;
+                                } else {
+                                    a = a.splice(0, a.length);
+                                    course.success(`match-question-answers`, `Successfully swapped answers for question ${q.id}`);
+                                    innerEachCallBack(null, course);
+                                }
+                            });
                         }
                     });
+
+                    //course.success(`match-question-answers`, `Successfully swapped all matching questions`);
+                    eachCallback(null, course);
                 }
             });
         }, (err) => {
@@ -78,12 +96,14 @@ module.exports = (course, stepCallback) => {
                 functionCallback(err);
             } else {
                 course.success(`match-question-answers`, `Successfully filtered the quiz questions`);
+                functionCallback(null, course);
             }
         });
     }
 
     var functions = [
-        getQuizzes,
+        //https://github.com/caolan/async/issues/14
+        asyncLib.apply(getQuizzes, course),
         filterQuizQuestions
     ];
 
