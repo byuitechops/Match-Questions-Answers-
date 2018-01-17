@@ -8,14 +8,13 @@
 const canvas = require('canvas-wrapper');
 const asyncLib = require('async');
 
-/* Variables */
-
 /* View available course object functions */
 // https://github.com/byuitechops/d2l-to-canvas-conversion-tool/blob/master/documentation/classFunctions.md
 
 module.exports = (course, stepCallback) => {
     //Create the module report so that we can access it later as needed.
     course.addModuleReport('match-question-answers');
+    course.newInfo('matchingQuestionsChanged', []);
 
     //Get list of all quizzes -- canvas.getQuizzes
     //iterate through quizzes and get all questions -- canvas.getQuizQuestions && identify all matching questions -- array of IDs
@@ -43,35 +42,100 @@ module.exports = (course, stepCallback) => {
         });
     }
 
+    /*********************************************
+    * filterQuizQuestions
+    * Goes through the question and works with
+    * the match questions.
+    **********************************************/
     function filterQuizQuestions(course, quiz_items, functionCallback) {
+
+        //question types we want to work with
         var questionTypes = [
             'matching_question'
         ];
 
-        asyncLib.eachLimit(quiz_items, 1, (item, eachCallback) => {
+        //reason for 3 is that we don't overload the server
+        asyncLib.eachLimit(quiz_items, 3, (item, eachCallback) => {
+            //get all of the quiz questions
             canvas.getQuizQuestions(course.info.canvasOU, item.id, (getErr, questions) => {
                 if (getErr) {
                     functionCallback(getErr);
                     return;
                 } else {
-                    var a = [];
+                    //go through every quiz question
                     asyncLib.each(questions, (q, innerEachCallBack) => {
-                        if (questionTypes.includes(q.question_type)) {
-                            //console.log(`Q: ${JSON.stringify(q)}`);
-                            q.answers.forEach(index => {
-                                var obj = {
-                                    'answer_text':index.text,
-                                    'id': index.id,
-                                    'answer_match_left': index.right,
-                                    'matching_answer_right': index.left
-                                }
+                        //we do this to ensure that the arrays and string are cleared every time we execute this function
+                        var a = [];
+                        var matches = [];
+                        var answers = ``;
+                        var warn = false;
 
-                                a.push(obj);
+                        //we have found a question that is part of questionType array
+                        //we switch the question and answer here
+                        if (questionTypes.includes(q.question_type)) {
+                            q.answers.forEach(index => {
+                                //if there are more questions than answers, this is necessary
+                                //so we don't accidentally create blank question(s)
+                                if (index.right != null) {
+                                    //multiple questions have the same answer
+                                    if (q.answers.length < q.matches.length) {
+                                        warn = true;
+
+                                        //quiz_items.title is undefined. figure this out
+                                        //throw warning so humans can check out the quiz to ensure that there is no bugs
+                                        course.throwWarning(`match-question-answers`,
+                                             `You may want to look at quiz: ${quiz_items.title} at (matching) question ${q.position}. Multiple choices in the question have the same answer.`);
+
+                                        //for matching part of QuizQuestion object
+                                        var newObj = {
+                                            'match_id': index.match_id,         //id for correct match
+                                            'text': index.left                  //part of dropdown for the correct answer
+                                        };
+
+                                        //for answers part of QuizQuestion object
+                                        for (i in q.matches) {
+                                            var obj = {
+                                                'answer_text': index.text,                  //text of answer
+                                                'id': index.id,                             //id of answer
+                                                'answer_match_left': q.matches[i].text,     //the swapping happens here
+                                                'answer_match_right': newObj.text           //the swapping ALSO happens here
+                                            };
+
+                                            a.push(obj);
+                                            matches.push(newObj);
+                                        }
+                                    //each question has an individual answer.
+                                    } else {
+                                        //for matching part of QuizQuestion object
+                                        var newObj = {
+                                            'match_id': index.match_id,         //id for correct match
+                                            'text': index.left                  //part of dropdown for the correct answer
+                                        };
+
+                                        //for answers part of QuizQuestion object
+                                        var obj = {
+                                            'answer_text':index.text,           //text of answer
+                                            'id': index.id,                     //id of answer
+                                            'answer_match_left': index.right,   //the swapping happens here
+                                            'answer_match_right': newObj.text   //the swapping ALSO happens here
+                                        };
+
+                                        //new lines are delimiter
+                                        answers += `${index.left}\n`;           //build the string for options that are not correct answers
+                                        matches.push(newObj);                   //for matches object in QuizQuestion
+                                        a.push(obj);                            //for answers object in QuizQuestion
+                                    }
+                                } else {
+                                    answers += `${index.left}\n`;
+                                }
                             });
 
+                            //the question and answers has been switched. let's update the question on the quiz while we are at it
                             canvas.put(`/api/v1/courses/${course.info.canvasOU}/quizzes/${item.id}/questions/${q.id}`, {
                                 'question': {
-                                    'answers': a
+                                    'answers': a,                                   //array of Answer objects
+                                    'matching': matches,                            //array of objects
+                                    'matching_answer_incorrect_matches': answers    //string with new lines as delimiter
                                 },
                             },
                             (putErr, results) => {
@@ -79,15 +143,19 @@ module.exports = (course, stepCallback) => {
                                     innerEachCallBack(putErr);
                                     return;
                                 } else {
-                                    a = a.splice(0, a.length);
                                     course.success(`match-question-answers`, `Successfully swapped answers for question ${q.id}`);
+
+                                    //for testing purpose -- npm test
+                                    course.info.matchingQuestionsChanged.push({
+                                        'id': q.id,
+                                        'warning': warn
+                                    });
                                     innerEachCallBack(null, course);
                                 }
                             });
                         }
                     });
 
-                    //course.success(`match-question-answers`, `Successfully swapped all matching questions`);
                     eachCallback(null, course);
                 }
             });
@@ -95,24 +163,29 @@ module.exports = (course, stepCallback) => {
             if (err) {
                 functionCallback(err);
             } else {
-                course.success(`match-question-answers`, `Successfully filtered the quiz questions`);
+                course.success(`match-question-answers`, `Successfully filtered all quiz questions`);
                 functionCallback(null, course);
             }
         });
     }
 
     var functions = [
+        //apply is necessary to include course object
         //https://github.com/caolan/async/issues/14
         asyncLib.apply(getQuizzes, course),
         filterQuizQuestions
     ];
 
+    /************************************************************
+    *                         START HERE                        *
+    ************************************************************/
     asyncLib.waterfall(functions, (waterfallErr, results) => {
         if (waterfallErr) {
             course.throwErr(`match-question-answers`, waterfallErr);
             stepCallback(null, course);
         } else {
-            course.success(`match-questions-answers`, `Successfully completed match-questions-answers`);
+            course.success(`match-question-answers`, `Successfully completed match-question-answers`);
+            console.log(course.info.matchingQuestionsChanged);
             stepCallback(null, course);
         }
     });
