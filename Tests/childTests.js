@@ -9,8 +9,8 @@ function g1Tests(course, callback) {
 
 
     tap.equal(questions.length, 3)
-    tap.equal(questions.filter(q => q.warn).length, 1);
-    tap.equal(questions.filter(q => !q.warn).length, 2);
+    tap.equal(questions.filter(q => q.warning).length, 1);
+    tap.equal(questions.filter(q => !q.warning).length, 2);
     callback(null, course);
 }
 

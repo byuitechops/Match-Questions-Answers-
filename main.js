@@ -56,7 +56,6 @@ module.exports = (course, stepCallback) => {
 
         //reason for 3 is that we don't overload the server
         asyncLib.eachLimit(quiz_items, 3, (item, eachCallback) => {
-            //get all of the quiz questions
             canvas.getQuizQuestions(course.info.canvasOU, item.id, (getErr, questions) => {
                 if (getErr) {
                     functionCallback(getErr);
@@ -65,10 +64,10 @@ module.exports = (course, stepCallback) => {
                     //go through every quiz question
                     asyncLib.each(questions, (q, innerEachCallBack) => {
                         //we do this to ensure that the arrays and string are cleared every time we execute this function
-                        var a = [];
-                        var matches = [];
-                        var answers = ``;
-                        var warn = false;
+                        var a = [];         //for answers array object in QuizQuestion
+                        var matches = [];   //array of objects for QuizQuestion
+                        var answers = ``;   //string for all incorrect answers in the dropdown
+                        var warn = false;   //for tap/testing
 
                         //we have found a question that is part of questionType array
                         //we switch the question and answer here
@@ -133,9 +132,9 @@ module.exports = (course, stepCallback) => {
                             //the question and answers has been switched. let's update the question on the quiz while we are at it
                             canvas.put(`/api/v1/courses/${course.info.canvasOU}/quizzes/${item.id}/questions/${q.id}`, {
                                 'question': {
-                                    'answers': a,                                   //array of Answer objects
-                                    'matching': matches,                            //array of objects
-                                    'matching_answer_incorrect_matches': answers    //string with new lines as delimiter
+                                    'answers': a,
+                                    'matching': matches,
+                                    'matching_answer_incorrect_matches': answers
                                 },
                             },
                             (putErr, results) => {
@@ -145,7 +144,7 @@ module.exports = (course, stepCallback) => {
                                 } else {
                                     course.success(`match-question-answers`, `Successfully swapped answers for question ${q.id}`);
 
-                                    //for testing purpose -- npm test
+                                    //for testing (tap) purpose -- npm test
                                     course.info.matchingQuestionsChanged.push({
                                         'id': q.id,
                                         'warning': warn
@@ -171,7 +170,7 @@ module.exports = (course, stepCallback) => {
 
     var functions = [
         //apply is necessary to include course object
-        //https://github.com/caolan/async/issues/14
+        //More info: https://github.com/caolan/async/issues/14
         asyncLib.apply(getQuizzes, course),
         filterQuizQuestions
     ];
@@ -185,7 +184,6 @@ module.exports = (course, stepCallback) => {
             stepCallback(null, course);
         } else {
             course.success(`match-question-answers`, `Successfully completed match-question-answers`);
-            console.log(course.info.matchingQuestionsChanged);
             stepCallback(null, course);
         }
     });
