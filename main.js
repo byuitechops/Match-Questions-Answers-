@@ -16,10 +16,6 @@ module.exports = (course, stepCallback) => {
     course.addModuleReport('match-question-answers');
     course.newInfo('matchingQuestionsChanged', []);
 
-    //Get list of all quizzes -- canvas.getQuizzes
-    //iterate through quizzes and get all questions -- canvas.getQuizQuestions && identify all matching questions -- array of IDs
-    //iterate through all matching questions and swap questions and answers
-
     /*********************************************
     * getQuizzes
     * Retrieves a list of quizzes in a course and
@@ -56,6 +52,7 @@ module.exports = (course, stepCallback) => {
 
         //reason for 3 is that we don't overload the server
         asyncLib.eachLimit(quiz_items, 3, (item, eachCallback) => {
+            var quizTitle = item.title;
             canvas.getQuizQuestions(course.info.canvasOU, item.id, (getErr, questions) => {
                 if (getErr) {
                     functionCallback(getErr);
@@ -80,10 +77,9 @@ module.exports = (course, stepCallback) => {
                                     if (q.answers.length < q.matches.length) {
                                         warn = true;
 
-                                        //quiz_items.title is undefined. figure this out
                                         //throw warning so humans can check out the quiz to ensure that there is no bugs
                                         course.throwWarning(`match-question-answers`,
-                                             `You may want to look at quiz: ${quiz_items.title} at (matching) question ${q.position}. Multiple choices in the question have the same answer.`);
+                                             `You may want to look at quiz: ${quizTitle} at (matching) question ${q.position}. Multiple questions have the same answer.`);
 
                                         //for matching part of QuizQuestion object
                                         var newObj = {
@@ -144,7 +140,7 @@ module.exports = (course, stepCallback) => {
                                 } else {
                                     course.success(`match-question-answers`, `Successfully swapped answers for question ${q.id}`);
 
-                                    //for testing (tap) purpose -- npm test
+                                    //for testing (tap) purposes -- npm test
                                     course.info.matchingQuestionsChanged.push({
                                         'id': q.id,
                                         'warning': warn
