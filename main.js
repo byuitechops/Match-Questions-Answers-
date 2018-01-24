@@ -8,12 +8,7 @@
 const canvas = require('canvas-wrapper');
 const asyncLib = require('async');
 
-/* View available course object functions */
-// https://github.com/byuitechops/d2l-to-canvas-conversion-tool/blob/master/documentation/classFunctions.md
-
 module.exports = (course, stepCallback) => {
-    //Create the module report so that we can access it later as needed.
-    course.addModuleReport('match-question-answers');
     course.newInfo('matchingQuestionsChanged', []);
 
     /*********************************************
@@ -27,7 +22,7 @@ module.exports = (course, stepCallback) => {
                 functionCallback(getErr);
                 return;
             } else {
-                course.success(`match-question-answers`, `Successfully retrieved ${quiz_list.length} quizzes.`);
+                course.message(`Successfully retrieved ${quiz_list.length} quizzes.`);
                 functionCallback(null, course, quiz_list);
             }
         }, (err) => {
@@ -78,8 +73,7 @@ module.exports = (course, stepCallback) => {
                                         warn = true;
 
                                         //throw warning so humans can check out the quiz to ensure that there is no bugs
-                                        course.throwWarning(`match-question-answers`,
-                                             `You may want to look at quiz: ${quizTitle} at (matching) question ${q.position}. Multiple questions have the same answer.`);
+                                        course.warning(`You may want to look at quiz: ${quizTitle} at (matching) question ${q.position}. Multiple questions have the same answer.`);
 
                                         //for matching part of QuizQuestion object
                                         var newObj = {
@@ -138,9 +132,10 @@ module.exports = (course, stepCallback) => {
                                     innerEachCallBack(putErr);
                                     return;
                                 } else {
-                                    course.success(`match-question-answers`, `Successfully swapped answers for question ${q.id}`);
+                                    course.log(`Quiz Question Swapping`, {
+                                        'ID': q.id
+                                    });
 
-                                    //for testing (tap) purposes -- npm test
                                     course.info.matchingQuestionsChanged.push({
                                         'id': q.id,
                                         'warning': warn
@@ -158,7 +153,7 @@ module.exports = (course, stepCallback) => {
             if (err) {
                 functionCallback(err);
             } else {
-                course.success(`match-question-answers`, `Successfully filtered all quiz questions`);
+                course.message(`Successfully filtered all quiz questions`);
                 functionCallback(null, course);
             }
         });
@@ -176,10 +171,10 @@ module.exports = (course, stepCallback) => {
     ************************************************************/
     asyncLib.waterfall(functions, (waterfallErr, results) => {
         if (waterfallErr) {
-            course.throwErr(`match-question-answers`, waterfallErr);
+            course.error(waterfallErr);
             stepCallback(null, course);
         } else {
-            course.success(`match-question-answers`, `Successfully completed match-question-answers`);
+            course.message(`Successfully completed match-question-answers`);
             stepCallback(null, course);
         }
     });
