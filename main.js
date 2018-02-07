@@ -9,21 +9,22 @@ const canvas = require('canvas-wrapper');
 const asyncLib = require('async');
 
 module.exports = (course, stepCallback) => {
-    course.newInfo('matchingQuestionsChanged', []);
+    //course.newInfo('matchingQuestionsChanged', []);
 
     /*********************************************
     * getQuizzes
     * Retrieves a list of quizzes in a course and
     * builds an object array based on each quiz
     **********************************************/
-    function getQuizzes(course, functionCallback) {
+    function getQuizzes(functionCallback) {
         canvas.getQuizzes(course.info.canvasOU, (getErr, quiz_list) => {
             if (getErr) {
                 functionCallback(getErr);
                 return;
             } else {
                 course.message(`Successfully retrieved ${quiz_list.length} quizzes.`);
-                functionCallback(null, course, quiz_list);
+                functionCallback(null, quiz_list);
+                return;
             }
         }, (err) => {
             if (err) {
@@ -38,15 +39,14 @@ module.exports = (course, stepCallback) => {
     * Goes through the question and works with
     * the match questions.
     **********************************************/
-    function filterQuizQuestions(course, quiz_items, functionCallback) {
-
+    function filterQuizQuestions(quiz_items, functionCallback) {
         //question types we want to work with
         var questionTypes = [
             'matching_question'
         ];
 
         //reason for 3 is that we don't overload the server
-        asyncLib.eachLimit(quiz_items, 3, (item, eachCallback) => {
+        asyncLib.eachSeries(quiz_items, (item, eachCallback) => {
             var quizTitle = item.title;
             canvas.getQuizQuestions(course.info.canvasOU, item.id, (getErr, questions) => {
                 if (getErr) {
@@ -54,7 +54,7 @@ module.exports = (course, stepCallback) => {
                     return;
                 } else {
                     //go through every quiz question
-                    asyncLib.each(questions, (q, innerEachCallBack) => {
+                    asyncLib.eachLimit(questions, 5, (q, innerEachCallBack) => {
                         //we do this to ensure that the arrays and string are cleared every time we execute this function
                         var a = [];         //for answers array object in QuizQuestion
                         var matches = [];   //array of objects for QuizQuestion
@@ -136,33 +136,33 @@ module.exports = (course, stepCallback) => {
                                         'ID': q.id
                                     });
 
-                                    course.info.matchingQuestionsChanged.push({
+                                    /*course.info.matchingQuestionsChanged.push({
                                         'id': q.id,
                                         'warning': warn
-                                    });
-                                    innerEachCallBack(null, course);
+                                    });*/
+                                    innerEachCallBack(null);
                                 }
                             });
                         }
                     });
 
-                    eachCallback(null, course);
+                    eachCallback(null);
                 }
             });
         }, (err) => {
             if (err) {
                 functionCallback(err);
+                return;
             } else {
                 course.message(`Successfully filtered all quiz questions`);
-                functionCallback(null, course);
+                functionCallback(null);
+                return;
             }
         });
     }
 
     var functions = [
-        //apply is necessary to include course object
-        //More info: https://github.com/caolan/async/issues/14
-        asyncLib.apply(getQuizzes, course),
+        getQuizzes,
         filterQuizQuestions
     ];
 
