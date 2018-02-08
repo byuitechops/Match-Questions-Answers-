@@ -17,13 +17,13 @@ module.exports = (course, stepCallback) => {
     * builds an object array based on each quiz
     **********************************************/
     function getQuizzes(functionCallback) {
-        canvas.getQuizzes(course.info.canvasOU, (getErr, quiz_list) => {
+        canvas.getQuizzes(course.info.canvasOU, (getErr, quizList) => {
             if (getErr) {
                 functionCallback(getErr);
                 return;
             } else {
-                course.message(`Successfully retrieved ${quiz_list.length} quizzes.`);
-                functionCallback(null, quiz_list);
+                course.message(`Successfully retrieved ${quizList.length} quizzes.`);
+                functionCallback(null, quizList);
                 return;
             }
         }, (err) => {
@@ -39,41 +39,42 @@ module.exports = (course, stepCallback) => {
     * Goes through the question and works with
     * the match questions.
     **********************************************/
-    function filterQuizQuestions(quiz_items, functionCallback) {
+    function filterQuizQuestions(quizItems, functionCallback) {
         //question types we want to work with
         var questionTypes = [
             'matching_question'
         ];
 
         //reason for 3 is that we don't overload the server
-        asyncLib.eachSeries(quiz_items, (item, eachCallback) => {
+        asyncLib.eachSeries(quizItems, (item, eachCallback) => {
             var quizTitle = item.title;
+            var isMultipleAnswersSame = false;
             canvas.getQuizQuestions(course.info.canvasOU, item.id, (getErr, questions) => {
                 if (getErr) {
                     functionCallback(getErr);
                     return;
                 } else {
                     //go through every quiz question
-                    asyncLib.eachLimit(questions, 5, (q, innerEachCallBack) => {
+                    asyncLib.each(questions, (question, innerEachCallBack) => {
                         //we do this to ensure that the arrays and string are cleared every time we execute this function
-                        var a = [];         //for answers array object in QuizQuestion
+                        var answersArray = [];         //for answers array object in QuizQuestion
                         var matches = [];   //array of objects for QuizQuestion
                         var answers = ``;   //string for all incorrect answers in the dropdown
-                        var warn = false;   //for tap/testing
+                        // var warn = false;   for tap/testing
 
                         //we have found a question that is part of questionType array
                         //we switch the question and answer here
-                        if (questionTypes.includes(q.question_type)) {
-                            q.answers.forEach(index => {
+                        if (questionTypes.includes(question.question_type)) {
+                            question.answers.forEach(index => {
                                 //if there are more questions than answers, this is necessary
                                 //so we don't accidentally create blank question(s)
                                 if (index.right != null) {
                                     //multiple questions have the same answer
-                                    if (q.answers.length < q.matches.length) {
-                                        warn = true;
+                                    if (question.answers.length < question.matches.length) {
+                                        // warn = true;
 
-                                        //throw warning so humans can check out the quiz to ensure that there is no bugs
-                                        course.warning(`You may want to look at quiz: ${quizTitle} at (matching) question ${q.position}. Multiple questions have the same answer.`);
+                                        //set to true for future warning
+                                        isMultipleAnswersSame = true;
 
                                         //for matching part of QuizQuestion object
                                         var newObj = {
@@ -82,15 +83,15 @@ module.exports = (course, stepCallback) => {
                                         };
 
                                         //for answers part of QuizQuestion object
-                                        for (i in q.matches) {
+                                        for (i in question.matches) {
                                             var obj = {
                                                 'answer_text': index.text,                  //text of answer
                                                 'id': index.id,                             //id of answer
-                                                'answer_match_left': q.matches[i].text,     //the swapping happens here
+                                                'answer_match_left': question.matches[i].text,     //the swapping happens here
                                                 'answer_match_right': newObj.text           //the swapping ALSO happens here
                                             };
 
-                                            a.push(obj);
+                                            answersArray.push(obj);
                                             matches.push(newObj);
                                         }
                                     //each question has an individual answer.
@@ -112,17 +113,24 @@ module.exports = (course, stepCallback) => {
                                         //new lines are delimiter
                                         answers += `${index.left}\n`;           //build the string for options that are not correct answers
                                         matches.push(newObj);                   //for matches object in QuizQuestion
-                                        a.push(obj);                            //for answers object in QuizQuestion
+                                        answersArray.push(obj);                            //for answers object in QuizQuestion
                                     }
                                 } else {
                                     answers += `${index.left}\n`;
                                 }
                             });
 
+                            //output error if bool is true
+                            if (isMultipleAnswersSame) {
+                                //throw warning so humans can check out the quiz to ensure that there is no bugs
+                                course.warning(`You may want to look at quiz: ${quizTitle} at (matching) question ${question.position}. Multiple questions have the same answer.`);
+                                isMultipleAnswersSame = false;
+                            }
+
                             //the question and answers has been switched. let's update the question on the quiz while we are at it
-                            canvas.put(`/api/v1/courses/${course.info.canvasOU}/quizzes/${item.id}/questions/${q.id}`, {
+                            canvas.put(`/api/v1/courses/${course.info.canvasOU}/quizzes/${item.id}/questions/${question.id}`, {
                                 'question': {
-                                    'answers': a,
+                                    'answers': answersArray,
                                     'matching': matches,
                                     'matching_answer_incorrect_matches': answers
                                 },
@@ -133,7 +141,7 @@ module.exports = (course, stepCallback) => {
                                     return;
                                 } else {
                                     course.log(`Quiz Question Swapping`, {
-                                        'ID': q.id
+                                        'ID': question.id
                                     });
 
                                     /*course.info.matchingQuestionsChanged.push({
