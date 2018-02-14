@@ -40,83 +40,91 @@ module.exports = (course, stepCallback) => {
     * the match questions.
     **********************************************/
     function filterQuizQuestions(quizItems, functionCallback) {
-        //question types we want to work with
+        // question types we want to work with
         var questionTypes = [
             'matching_question'
         ];
 
-        //reason for 3 is that we don't overload the server
-        asyncLib.eachSeries(quizItems, (item, eachCallback) => {
-            var quizTitle = item.title;
+        // reason for 3 is that we don't overload the server
+        asyncLib.eachSeries(quizItems, (quiz, eachCallback) => {
+            var quizTitle = quiz.title;
             var isMultipleAnswersSame = false;
-            canvas.getQuizQuestions(course.info.canvasOU, item.id, (getErr, questions) => {
+            canvas.getQuizQuestions(course.info.canvasOU, quiz.id, (getErr, questions) => {
                 if (getErr) {
                     functionCallback(getErr);
                     return;
                 } else {
-                    //go through every quiz question
+                    // go through every quiz question
                     asyncLib.each(questions, (question, innerEachCallBack) => {
-                        //we do this to ensure that the arrays and string are cleared every time we execute this function
-                        var answersArray = [];         //for answers array object in QuizQuestion
-                        var matches = [];   //array of objects for QuizQuestion
-                        var answers = ``;   //string for all incorrect answers in the dropdown
+                        // we do this to ensure that the arrays and string are cleared every time we execute this function
+                        var answersArray = [];         // for answers array object in QuizQuestion
+                        var matches = [];   // array of objects for QuizQuestion
+                        var distractors = '';   // string for all incorrect answers in the dropdown
                         // var warn = false;   for tap/testing
 
-                        //we have found a question that is part of questionType array
-                        //we switch the question and answer here
+                        // we have found a question that is part of questionType array
+                        // we switch the question and answer here
                         if (questionTypes.includes(question.question_type)) {
-                            question.answers.forEach(index => {
-                                //if there are more questions than answers, this is necessary
-                                //so we don't accidentally create blank question(s)
-                                if (index.right != null) {
-                                    //multiple questions have the same answer
+                            question.answers.forEach(answer => {
+                                /* if there are more questions than answers, this is necessary
+                                so we don't accidentally create blank question(s) */
+                                if (answer.right != null) {
+                                    // multiple questions have the same answer
                                     if (question.answers.length < question.matches.length) {
                                         // warn = true;
 
-                                        //set to true for future warning
+                                        // set to true for future warning
                                         isMultipleAnswersSame = true;
 
-                                        //for matching part of QuizQuestion object
-                                        var newObj = {
-                                            'match_id': index.match_id,         //id for correct match
-                                            'text': index.left                  //part of dropdown for the correct answer
+                                        question.answers.filter(answer => {
+                                            if (answer.right === undefined) {
+                                                distractors += `${answer.left}\n`;
+                                            }
+                                            return answer.right;
+                                        });
+
+                                        
+                                        // for matching part of QuizQuestion object
+                                        var newMatchObj = {
+                                            'match_id': answer.match_id,         // id for correct match
+                                            'text': answer.left                  // part of dropdown for the correct answer
                                         };
 
                                         //for answers part of QuizQuestion object
                                         for (i in question.matches) {
                                             var obj = {
-                                                'answer_text': index.text,                  //text of answer
-                                                'id': index.id,                             //id of answer
+                                                'answer_text': answer.text,                  //text of answer
+                                                'id': answer.id,                             //id of answer
                                                 'answer_match_left': question.matches[i].text,     //the swapping happens here
-                                                'answer_match_right': newObj.text           //the swapping ALSO happens here
+                                                'answer_match_right': newMatchObj.text           //the swapping ALSO happens here
                                             };
 
                                             answersArray.push(obj);
-                                            matches.push(newObj);
+                                            matches.push(newMatchObj);
                                         }
                                     //each question has an individual answer.
                                     } else {
                                         //for matching part of QuizQuestion object
-                                        var newObj = {
-                                            'match_id': index.match_id,         //id for correct match
-                                            'text': index.left                  //part of dropdown for the correct answer
+                                        var newMatchObj = {
+                                            'match_id': answer.match_id,         //id for correct match
+                                            'text': answer.left                  //part of dropdown for the correct answer
                                         };
 
                                         //for answers part of QuizQuestion object
                                         var obj = {
-                                            'answer_text':index.text,           //text of answer
-                                            'id': index.id,                     //id of answer
-                                            'answer_match_left': index.right,   //the swapping happens here
-                                            'answer_match_right': newObj.text   //the swapping ALSO happens here
+                                            'answer_text':answer.text,           //text of answer
+                                            'id': answer.id,                     //id of answer
+                                            'answer_match_left': answer.right,   //the swapping happens here
+                                            'answer_match_right': newMatchObj.text   //the swapping ALSO happens here
                                         };
 
                                         //new lines are delimiter
-                                        answers += `${index.left}\n`;           //build the string for options that are not correct answers
-                                        matches.push(newObj);                   //for matches object in QuizQuestion
+                                        distractors += `${answer.left}\n`;           //build the string for options that are not correct answers
+                                        matches.push(newMatchObj);                   //for matches object in QuizQuestion
                                         answersArray.push(obj);                            //for answers object in QuizQuestion
                                     }
                                 } else {
-                                    answers += `${index.left}\n`;
+                                    distractors += `${answer.left}\n`;
                                 }
                             });
 
@@ -128,11 +136,11 @@ module.exports = (course, stepCallback) => {
                             }
 
                             //the question and answers has been switched. let's update the question on the quiz while we are at it
-                            canvas.put(`/api/v1/courses/${course.info.canvasOU}/quizzes/${item.id}/questions/${question.id}`, {
+                            canvas.put(`/api/v1/courses/${course.info.canvasOU}/quizzes/${quiz.id}/questions/${question.id}`, {
                                 'question': {
                                     'answers': answersArray,
                                     'matching': matches,
-                                    'matching_answer_incorrect_matches': answers
+                                    'matching_answer_incorrect_matches': distractors
                                 },
                             },
                             (putErr, results) => {
@@ -140,7 +148,7 @@ module.exports = (course, stepCallback) => {
                                     innerEachCallBack(putErr);
                                     return;
                                 } else {
-                                    course.log(`Quiz Question Swapping`, {
+                                    course.log('Quiz Question Swapping', {
                                         'ID': question.id
                                     });
 
@@ -162,7 +170,7 @@ module.exports = (course, stepCallback) => {
                 functionCallback(err);
                 return;
             } else {
-                course.message(`Successfully filtered all quiz questions`);
+                course.message('Successfully filtered all quiz questions');
                 functionCallback(null);
                 return;
             }
@@ -182,7 +190,7 @@ module.exports = (course, stepCallback) => {
             course.error(waterfallErr);
             stepCallback(null, course);
         } else {
-            course.message(`Successfully completed match-question-answers`);
+            course.message('Successfully completed match-question-answers');
             stepCallback(null, course);
         }
     });
