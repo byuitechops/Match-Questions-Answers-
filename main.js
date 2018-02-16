@@ -9,63 +9,8 @@ const canvas = require('canvas-wrapper');
 const asyncLib = require('async');
 const cheerio = require('cheerio');
 
-var globalQuizQuestions = [];
-
 module.exports = (course, stepCallback) => {
     //course.newInfo('matchingQuestionsChanged', []);
-
-    function quizExist(questionObj) {
-        var questionFoundFlag = false;
-
-        for (i in globalQuizQuestions) {
-            if (globalQuizQuestions[i].quizTitle == questionObj.title) {
-                for (x in globalQuizQuestions.quizQuestions) {
-                    if (globalQuizQuestions.quizQuestions[x] == questionObj.question) {
-                        return true;
-                    }
-                }
-
-                return false;
-            }
-        }
-
-        return false;
-    }
-
-    function parseXML(quizTitle) {
-        var file = retrieveFile(quizTitle);
-
-        if (file != undefined) {
-            var $ = file.dom;
-
-            $('questestinterop > assessment > section > item > presentation > flow > response_grp').each((index, quiz) => {
-                console.log(`Quiz question name: ${quiz.attribs.title}`);
-
-                //grab the id
-                var answerId = quiz.attribs.respident;
-
-                // console.log(`ID: ${answerId}.\nQuestion: ${answer}`);
-            });
-        }
-    }
-
-    function retrieveFile(quizTitle) {
-
-        var file = course.content.find((file) => {
-            var $ = file.dom;
-            var fileName = '';
-
-            $('questestinterop > assessment').each((index, assessment) => {
-                if (assessment.attribs.title == quizTitle) {
-                    fileName = assessment.attribs.title;
-                }
-            });
-
-            return fileName == quizTitle;
-        });
-
-        return file;
-    }
 
     /*********************************************
      * getQuizzes
@@ -105,7 +50,7 @@ module.exports = (course, stepCallback) => {
             var quizTitle = quiz.title;
             var isMultipleAnswersSame = false;
             var avoidDuplicateQuestions = [];
-            globalQuizQuestions = [];
+            var distractorsArray = [];
 
             canvas.getQuizQuestions(course.info.canvasOU, quiz.id, (getErr, questions) => {
                 if (getErr) {
@@ -116,7 +61,7 @@ module.exports = (course, stepCallback) => {
                     asyncLib.each(questions, (question, innerEachCallBack) => {
                         // we do this to ensure that the arrays and string are cleared every time we execute this function
                         var answersArray = [];  // for answers array object in QuizQuestion
-                        var matches = [];       // array of objects for QuizQuestion
+                        var matchingArray = [];       // array of objects for QuizQuestion
                         var distractors = '';   // string for all incorrect answers in the dropdown
                         // var warn = false;    // for tap/testing
 
@@ -129,18 +74,16 @@ module.exports = (course, stepCallback) => {
                                 if (answer.right != null) {
                                     // multiple questions have the same answer
                                     if (question.answers.length < question.matches.length) {
-                                        // warn = true;
 
                                         // set to true for future warning
                                         isMultipleAnswersSame = true;
 
-                                        // question.answers.filter(answer => {
-                                        //     if (answer.right === undefined) {
-                                        //         distractors += `${answer.left}\n`;
-                                        //     }
-                                        //     return distractors;
-                                        // });
-                                        // console.log(`Distractors: ${distractors}`);
+                                        question.answers.filter(answer => {
+                                            if (!distractorsArray.includes(answer.left)) {
+                                                distractors += `${answer.left}\n`;
+                                                distractorsArray.push(answer.left);
+                                            }
+                                        });
 
                                         // for matching part of QuizQuestion object
                                         var newMatchObj = {
@@ -159,9 +102,9 @@ module.exports = (course, stepCallback) => {
                                                 };
 
                                                 answersArray.push(obj);
-                                                matches.push(newMatchObj);
+                                                matchingArray.push(newMatchObj);
                                                 avoidDuplicateQuestions.push(question.matches[i].text);
-                                            }
+                                            } 
                                         }
                                         //each question has an individual answer.
                                     } else {
@@ -181,7 +124,7 @@ module.exports = (course, stepCallback) => {
 
                                         //new lines are delimiter
                                         distractors += `${answer.left}\n`; //build the string for options that are not correct answers
-                                        matches.push(newMatchObj); //for matches object in QuizQuestion
+                                        matchingArray.push(newMatchObj); //for matches object in QuizQuestion
                                         answersArray.push(obj); //for answers object in QuizQuestion
                                     }
                                 } else {
@@ -200,7 +143,7 @@ module.exports = (course, stepCallback) => {
                             canvas.put(`/api/v1/courses/${course.info.canvasOU}/quizzes/${quiz.id}/questions/${question.id}`, {
                                     'question': {
                                         'answers': answersArray,
-                                        'matching': matches,
+                                        'matching': matchingArray,
                                         'matching_answer_incorrect_matches': distractors
                                     },
                                 },
@@ -246,21 +189,13 @@ module.exports = (course, stepCallback) => {
     /************************************************************
      *                         START HERE                        *
      ************************************************************/
-    // asyncLib.waterfall(functions, (waterfallErr, results) => {
-    //     if (waterfallErr) {
-    //         course.error(waterfallErr);
-    //         stepCallback(null, course);
-    //     } else {
-    //         course.message('Successfully completed match-question-answers');
-    //         stepCallback(null, course);
-    //     }
-    // });
-
-    //TESTING
-    console.log(`Additional Matching Questions\n-----------------------------------`);
-    parseXML('Additional Matching Questions');
-    console.log(`Matching Quiz\n-----------------------------------`);
-    parseXML('Matching Quiz');
-    console.log(`Question Types\n-----------------------------------`);
-    parseXML('Question Types');
+    asyncLib.waterfall(functions, (waterfallErr, results) => {
+        if (waterfallErr) {
+            course.error(waterfallErr);
+            stepCallback(null, course);
+        } else {
+            course.message('Successfully completed match-question-answers');
+            stepCallback(null, course);
+        }
+    });
 };
