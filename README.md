@@ -4,7 +4,7 @@
 ### *Platform*: Online
 ### *Required*: Required
 
-This child module is built to be used by the Brigham Young University - Idaho D2L to Canvas Conversion Tool. It utilizes the standard `module.exports => (course, stepCallback)` signature and uses the Conversion Tool's standard logging functions. You can view extended documentation [Here](https://github.com/byuitechops/d2l-to-canvas-conversion-tool/tree/master/documentation).
+This child module is built to be used by the Brigham Young University - Idaho D2L to Canvas Conversion Tool. It utilizes the standard `module.exports => (course, stepCallback)` signature and uses the Conversion Tool's standard logging functions. You can view extended documentation [here](https://github.com/byuitechops/d2l-to-canvas-conversion-tool/tree/master/documentation).
 
 ## Purpose
 
@@ -46,7 +46,7 @@ person running the tool will check the question to ensure that it is accurate.
 
 List the categories used in logging data in your module.
 
-- ID of the question that swapped - Title: Quiz Question Swapping
+- ID of the question that swapped, name of the question that was swapped - Title: Quiz Question Swapping
 
 ## Requirements
 
