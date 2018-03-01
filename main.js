@@ -17,19 +17,19 @@ module.exports = (course, stepCallback) => {
      * Retrieves a list of quizzes in a course and
      * builds an object array based on each quiz
      **********************************************/
-    function getQuizzes(functionCallback) {
-        canvas.getQuizzes(course.info.canvasOU, (getErr, quizList) => {
-            if (getErr) {
-                functionCallback(getErr);
+    function getQuizzes(getQuizzesCallback) {
+        canvas.getQuizzes(course.info.canvasOU, (getQuizzesErr, quizList) => {
+            if (getQuizzesErr) {
+                getQuizzesCallback(getQuizzesErr);
                 return;
             } else {
                 course.message(`Successfully retrieved ${quizList.length} quizzes.`);
-                functionCallback(null, quizList);
+                getQuizzesCallback(null, quizList);
                 return;
             }
         }, (err) => {
             if (err) {
-                functionCallback(err);
+                getQuizzesCallback(err);
                 return;
             }
         });
@@ -40,13 +40,13 @@ module.exports = (course, stepCallback) => {
      * Goes through the question and works with
      * the match questions.
      **********************************************/
-    function filterQuizQuestions(quizzes, functionCallback) {
+    function filterQuizQuestions(quizzes, filterQuizQuestionsCallback) {
         // question types we want to work with
         var questionTypes = [
             'matching_question'
         ];
 
-        asyncLib.eachSeries(quizzes, (quiz, eachCallback) => {
+        asyncLib.eachSeries(quizzes, (quiz, eachSeriesCallback) => {
             //these doesn't need to be reset for each question but it needs to be reset for each quiz
             var quizTitle = quiz.title;
             var isMultipleAnswersSame = false;
@@ -55,11 +55,11 @@ module.exports = (course, stepCallback) => {
 
             canvas.getQuizQuestions(course.info.canvasOU, quiz.id, (getErr, questions) => {
                 if (getErr) {
-                    functionCallback(getErr);
+                    filterQuizQuestionsCallback(getErr);
                     return;
                 } else {
                     // go through every quiz question
-                    asyncLib.each(questions, (question, innerEachCallBack) => {
+                    asyncLib.each(questions, (question, eachCallback) => {
                         // we do this to ensure that the arrays and string are cleared every time we execute this function
                         var answersArray = [];          // for answers array object in QuizQuestion
                         var matchingArray = [];         // array of objects for QuizQuestion
@@ -153,7 +153,7 @@ module.exports = (course, stepCallback) => {
                                 },
                                 (putErr, results) => {
                                     if (putErr) {
-                                        innerEachCallBack(putErr);
+                                        eachCallback(putErr);
                                         return;
                                     } else {
                                         course.log('Quiz Question Swapping', {
@@ -165,22 +165,22 @@ module.exports = (course, stepCallback) => {
                                             'id': q.id,
                                             'warning': warn
                                         });*/
-                                        innerEachCallBack(null);
+                                        eachCallback(null);
                                     }
                                 });
                         }
                     });
 
-                    eachCallback(null);
+                    eachSeriesCallback(null);
                 }
             });
         }, (err) => {
             if (err) {
-                functionCallback(err);
+                filterQuizQuestionsCallback(err);
                 return;
             } else {
                 course.message('Successfully filtered all quiz questions');
-                functionCallback(null);
+                filterQuizQuestionsCallback(null);
                 return;
             }
         });
