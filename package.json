@@ -4,7 +4,7 @@
     "description": "Swap question answers in quizzes",
     "main": "main.js",
     "dependencies": {
-        "canvas-wrapper": "git+https://github.com/byuitechops/Canvas-wrapper.git"
+        "canvas-wrapper": "git+https://github.com/byuitechops/canvas-wrapper.git"
     },
     "devDependencies": {
         "async": "^2.6.0",
@@ -12,7 +12,7 @@
         "tap": "^10.7.3"
     },
     "scripts": {
-        "start": "node ./node_modules/child-development-kit/runChild.js",
+        "start": "node --inspect-brk ./node_modules/child-development-kit/runChild.js",
         "test": "tap ./node_modules/child-development-kit/testChild.js -T"
     },
     "repository": {
