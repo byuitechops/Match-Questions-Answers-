@@ -4,15 +4,19 @@
     "description": "Swap question answers in quizzes",
     "main": "main.js",
     "dependencies": {
-        "canvas-wrapper": "github:byuitechops/canvas-wrapper"
+        "canvas-wrapper": "github:byuitechops/canvas-wrapper",
+        "iconv-lite": "^0.4.24",
+        "util": "^0.11.1",
+        "xml-js": "^1.6.8"
     },
     "devDependencies": {
-        "async": "^2.6.0",
+        "async": "^2.6.1",
         "child-development-kit": "github:byuitechops/child-development-kit",
         "tap": "^10.7.3"
     },
     "scripts": {
-        "start": "node --inspect-brk ./node_modules/child-development-kit/runChild.js",
+        "start": "node ./node_modules/child-development-kit/runChild.js",
+        "inspect": "node --inspect-brk ./node_modules/child-development-kit/runChild.js",
         "test": "tap ./node_modules/child-development-kit/testChild.js -T"
     },
     "repository": {
