@@ -1,58 +1,24 @@
 const fs = require('fs');
 const canvas = require('canvas-wrapper');
-const convert = require('xml-js');
 const asyncLib = require('async');
-const iconvlite = require('iconv-lite');
-const {
-    promisify
-} = require('util');
-const fsRead = promisify(fs.readFile);
-const asyncEach = promisify(asyncLib.each);
-
-const PATH = 'questestinterop assessment section item itemmetadata qtimetadata qti_metadatafield';
+const xpath = require('xpath');
+const dom = require('xmldom').DOMParser;
 
 module.exports = (course, stepCallback) => {
     (async () => {
-        async function convertXMLJSON(matchingQuizzes) {
-            await asyncEach(matchingQuizzes, async quiz => {
-                // console.log(quiz);
-                // let data = await fsRead(quiz.path);
-
-                // const content = iconvlite.decode(data, 'UTF-8');
-
-                let results = convert.xml2json(quiz, {
-                    compact: true
-                });
-
-                fs.writeFile(`${quiz.name}.compact.json`, results, (err) => {
-                    if (err) console.log(err)
-                });
-            });
+        function getXML(quizzes) {
+            return quizzes.map(quiz => quiz.dom.xml());
         }
 
-        async function parseQuizzes(quizzes) {
-            let matchingQuizzes = [];
-
-            await asyncEach(quizzes, async quiz => {
-                let $ = quiz.dom;
-                let matchingQuizFound = false;
-
-                $(PATH).each((i, ele) => {
-                    let text = $(ele).find('fieldentry').text();
-
-                    if (text.includes('Matching')) matchingQuizFound = true;
-                });
-
-                if (matchingQuizFound) matchingQuizzes.push(quiz);
+        function getLabels(xmlData) {
+            console.log('------------------\nXMLs: \n', xmlData);
+            let nodesData = xmlData.map(xml => {
+                let doc = new dom().parseFromString(xml);
+                return xpath.select('//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../@label', doc);
             });
+            nodesData = nodesData.filter(nodes => nodes.length > 0);
 
-            return matchingQuizzes;
-        }
-
-        function parseXML() {
-            let quizFiles = course.content.filter(file => file.name.includes('quiz_d2l_'));
-
-            return parseQuizzes(quizFiles);
+            console.log('------------------\nodesData: \n', nodesData);
         }
 
         /*********************************************
@@ -247,7 +213,9 @@ module.exports = (course, stepCallback) => {
         //     }
         // });
 
-        await convertXMLJSON(await parseXML());
-        stepCallback(null, course);
+        // await convertXMLJSON(await parseXML());
+        // stepCallback(null, course);
+        let quizzes = course.content.filter(quiz => quiz.name.includes('quiz_d2l'));
+        getLabels(getXML(quizzes));
     })();
 };
