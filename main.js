@@ -1,59 +1,129 @@
-const fs = require('fs');
+const dom = require('xmldom').DOMParser;
+const xpath = require('xpath');
 const canvas = require('canvas-wrapper');
-const convert = require('xml-js');
 const asyncLib = require('async');
-const iconvlite = require('iconv-lite');
 const {
     promisify
 } = require('util');
-const fsRead = promisify(fs.readFile);
 const asyncEach = promisify(asyncLib.each);
 
-const PATH = 'questestinterop assessment section item itemmetadata qtimetadata qti_metadatafield';
+//https://stackoverflow.com/a/14853974
+Array.prototype.equals = function (array) {
+    // something went bad here
+    if (!array || this.length != array.length) return false;
+
+    //element checking
+    for (var i = 0; i < this.length; i++) {
+        // recursively checking inner arrays
+        if (this[i] instanceof Array && array[i] instanceof Array) {
+            if (!this[i].equals(array[i])) {
+                return false;
+            }
+        } else if (this[i] != array[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 module.exports = (course, stepCallback) => {
     (async () => {
-        async function convertXMLJSON(matchingQuizzes) {
-            await asyncEach(matchingQuizzes, async quiz => {
-                // console.log(quiz);
-                // let data = await fsRead(quiz.path);
-
-                // const content = iconvlite.decode(data, 'UTF-8');
-
-                let results = convert.xml2json(quiz, {
-                    compact: true
-                });
-
-                fs.writeFile(`${quiz.name}.compact.json`, results, (err) => {
-                    if (err) console.log(err)
-                });
-            });
+        function getXML(quizzes) {
+            return quizzes.map(quiz => quiz.dom.xml());
         }
 
-        async function parseQuizzes(quizzes) {
-            let matchingQuizzes = [];
+        function extraction(word) {
+            let phrase = word.replace(/<\/p>/g, '<>').replace(/<p>/g, '').split('<>').filter(ele => ele !== '');
+            let q = phrase[0];
+            phrase.shift(0);
 
-            await asyncEach(quizzes, async quiz => {
-                let $ = quiz.dom;
-                let matchingQuizFound = false;
+            return {
+                question: q,
+                answers: phrase
+            }
+        }
 
-                $(PATH).each((i, ele) => {
-                    let text = $(ele).find('fieldentry').text();
+        function createObj(arr, doc) {
+            let theSet = [];
 
-                    if (text.includes('Matching')) matchingQuizFound = true;
-                });
-
-                if (matchingQuizFound) matchingQuizzes.push(quiz);
+            arr.forEach(ele => {
+                let flag = false;
+                for (let theSetElement of theSet)
+                    if (theSetElement.equals(ele.answers)) flag = true;
+                if (!flag) theSet.push(ele.answers);
             });
 
-            return matchingQuizzes;
+            let questions = [];
+            theSet.forEach(ele => {
+                let temp = []
+                let answer = '';
+
+                arr.forEach(arrayElement => {
+                    if (arrayElement.answers.equals(ele)) {
+                        temp.push(arrayElement);
+                        answer = ele;
+                    }
+                });
+
+                let a = answer.map(ele => {
+                    let updatedEle = ele.replace('&nbsp;', ' ');
+
+                    let selector = `//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../presentation/flow/response_grp//mattext[text()="<p>${ele}</p>"]/../../../@ident`;
+                    let id = xpath.select(selector, doc)[0].textContent;
+
+                    return {
+                        'answer': updatedEle,
+                        'id': id
+                    }
+                });
+
+                let q = temp.map(ele => {
+                    let selector = `//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../presentation/flow/response_grp/material/mattext[text()="<p>${ele.question}</p>"]/../../@respident`
+                    let id = xpath.select(selector, doc)[0].textContent;
+
+                    return {
+                        'question': ele.question,
+                        'id': id
+                    }
+                });
+
+                questions.push({
+                    'questions': q,
+                    'answers': a
+                });
+            });
+
+            return questions;
         }
 
-        function parseXML() {
-            let quizFiles = course.content.filter(file => file.name.includes('quiz_d2l_'));
+        async function getLabels(xmlData) {
+            const xpathQuizTitleSelector = '//assessment/@title';
+            const xpathQuestionTextSelector = '//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../presentation/flow/material/mattext';
 
-            return parseQuizzes(quizFiles);
-        }
+            // gets all of the questions and answers
+            const xpathAnswersTextSelector = '//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../presentation/flow/response_grp';
+
+            // gets all of the QUES IDs
+            const xpathID = '//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../presentation/flow/response_grp/render_choice/flow_label/response_label/@ident';
+
+            // gets the QUES_ID for a certain question
+            // '//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../presentation/flow/response_grp/material/mattext[text()="<p>A poor fool suffering from his mid-life crisis.</p>"]/../../@respident'
+
+            // number of questions with QUES_ID
+            //'//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../@label'
+
+            await asyncEach(xmlData, async xml => {
+                let doc = new dom().parseFromString(xml);
+
+                // let quizTitle = xpath.select(xpathQuizTitleSelector, doc)[0].value;
+                let quizQuestionsArray = xpath.select(xpathAnswersTextSelector, doc)
+                    .map(node => (node) ? node.textContent : '');
+
+                let questions = createObj(quizQuestionsArray.map(nodie => extraction(nodie)), doc);
+                console.log(JSON.stringify(questions));
+            });
+        };
 
         /*********************************************
          * getQuizzes
@@ -246,8 +316,9 @@ module.exports = (course, stepCallback) => {
         //         stepCallback(null, course);
         //     }
         // });
+        let quizzes = course.content.filter(file => file.name.includes('quiz_d2l_'));
+        let nodes = await getLabels(getXML(quizzes));
 
-        await convertXMLJSON(await parseXML());
         stepCallback(null, course);
     })();
 };
