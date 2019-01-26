@@ -29,10 +29,110 @@ Array.prototype.equals = function (array) {
 
 module.exports = (course, stepCallback) => {
     (async () => {
+        /**********************************************
+         * getXML
+         * @param {Array} quizzes
+         * 
+         * This returns the xml portion that lives inside
+         * the dom property of each quiz as an array.
+         *********************************************/
         function getXML(quizzes) {
             return quizzes.map(quiz => quiz.dom.xml());
         }
 
+        /**********************************************
+         * updateQuestions
+         * @param {Array} questions
+         * @param {Array} answers
+         * 
+         * This function creates a new property in each
+         * object in the array to contain the question
+         * id of the question it is correct for.
+         *********************************************/
+        async function updateQuestions(questions, answers) {
+            asyncEach(questions, async (question, i) => {
+                asyncEach(question.answers, async qAnswer => {
+                    asyncEach(answers, async aAnswer => {
+                        // if (qAnswer.id === aAnswer.answerId) {
+                        //     qAnswer.isCorrect = (aAnswer.answer === 'D2L_Correct') ? true : false;
+                        // }
+
+                        if (qAnswer.id === aAnswer.answerId &&
+                            aAnswer.answer === 'D2L_Correct') {
+
+                            qAnswer.matchQuestion = question.question[i].id;
+                        }
+                    });
+                });
+            });
+
+            return questions;
+        }
+
+        /**********************************************
+         * identifyAnswers
+         * @param {dom} doc
+         * 
+         * This builds an object array of all the answers
+         * that contains the question it is for, the 
+         * answer id and whether it is correct or not, 
+         * which is done through either D2L_Correct or
+         * D2L_Incorrect.
+         *********************************************/
+        function identifyAnswers(doc) {
+            // respcondition node list
+            let respconditionNodes = '//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../resprocessing/respcondition';
+
+            // get node list
+            let quizAnswersArray = xpath.evaluate(respconditionNodes, doc, null, xpath.XPathResult.ANY_TYPE, null);
+            let answers = [];
+
+            //start the iteration process
+            node = quizAnswersArray.iterateNext();
+
+            //iterate through all of the correct/incorrect portion of the xml
+            while (node) {
+                let questionIDSelector = '//varequal/@respident';
+                let answerIDSelector = '//varequal';
+                let answerSelector = '//setvar/@varname';
+
+                let newDoc = new dom().parseFromString(node.toString());
+
+                //get the qId and make sure that it is valid 
+                let qId = xpath.select(questionIDSelector, newDoc)[0];
+
+                //ensure that we get the ID instead of crap
+                if (qId) {
+                    qId = qId.textContent
+                    let aId = xpath.select(answerIDSelector, newDoc)[0].textContent;
+                    let answer = xpath.select(answerSelector, newDoc)[0].textContent;
+
+                    //save state in array
+                    let obj = {
+                        'questionId': qId,
+                        'answerId': aId,
+                        'answer': answer
+                    };
+
+                    answers.push(obj);
+                }
+
+
+                node = quizAnswersArray.iterateNext();
+            }
+
+            //remove the bad parts that the XPath may have returned
+            return answers.filter(ele => ele.questionId.includes('QUES_'));
+        }
+
+        /**********************************************
+         * extraction
+         * @param {String} word
+         * 
+         * This function basically retrieves the question
+         * and answers from a string that was returned
+         * by XPath.
+         *********************************************/
         function extraction(word) {
             let phrase = word.replace(/<\/p>/g, '<>').replace(/<p>/g, '').split('<>').filter(ele => ele !== '');
             let q = phrase[0];
@@ -44,15 +144,46 @@ module.exports = (course, stepCallback) => {
             }
         }
 
+        /**********************************************
+         * createObj
+         * @param {Array} arr
+         * @param {dom} doc
+         * 
+         * This forms the array of objects where it
+         * holds the matching questions and possible 
+         * answers for those matching questions.
+         * 
+         * This is what the end results look like:
+         * [
+         *      {
+         *          questions: [
+         *              "A poor fool suffering from his mid-life crisis.",
+         *              "The state bird of Michigan",
+         *              "Your face"
+         *          ],
+         *          answers: ["Batman", "Robin"]
+         *      },
+         *      {
+         *          questions: [
+         *              "Jello"
+         *          ],
+         *          answers: ["Consumable plastic", "See-through food", "a hairbrush"]
+         *      },
+         *      ...
+         *  ] 
+         *********************************************/
         function createObj(arr, doc) {
             let theSet = [];
 
+            //build an unique list of all the answers for the question
             arr.forEach(ele => {
                 let flag = false;
                 for (let theSetElement of theSet)
                     if (theSetElement.equals(ele.answers)) flag = true;
                 if (!flag) theSet.push(ele.answers);
             });
+
+            //match the matching questions to the their possible answers
 
             let questions = [];
             theSet.forEach(ele => {
@@ -66,6 +197,7 @@ module.exports = (course, stepCallback) => {
                     }
                 });
 
+                // retrieving the id
                 let a = answer.map(ele => {
                     let updatedEle = ele.replace('&nbsp;', ' ');
 
@@ -97,6 +229,14 @@ module.exports = (course, stepCallback) => {
             return questions;
         }
 
+        /**********************************************
+         * getLabels
+         * @param {Array} xmlData
+         * 
+         * This function acts as a driver for all of the
+         * XML parsing process to identify which answers
+         * are correct for any of the matching questions.
+         *********************************************/
         async function getLabels(xmlData) {
             const xpathQuizTitleSelector = '//assessment/@title';
             const xpathQuestionTextSelector = '//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../presentation/flow/material/mattext';
@@ -107,12 +247,6 @@ module.exports = (course, stepCallback) => {
             // gets all of the QUES IDs
             const xpathID = '//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../presentation/flow/response_grp/render_choice/flow_label/response_label/@ident';
 
-            // gets the QUES_ID for a certain question
-            // '//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../presentation/flow/response_grp/material/mattext[text()="<p>A poor fool suffering from his mid-life crisis.</p>"]/../../@respident'
-
-            // number of questions with QUES_ID
-            //'//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../@label'
-
             await asyncEach(xmlData, async xml => {
                 let doc = new dom().parseFromString(xml);
 
@@ -121,7 +255,12 @@ module.exports = (course, stepCallback) => {
                     .map(node => (node) ? node.textContent : '');
 
                 let questions = createObj(quizQuestionsArray.map(nodie => extraction(nodie)), doc);
-                console.log(JSON.stringify(questions));
+                let answers = identifyAnswers(doc);
+
+                //testing final result -- will be removed
+                let finalArray = JSON.stringify(await updateQuestions(questions, answers));
+
+                console.log(finalArray);
             });
         };
 
