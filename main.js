@@ -1,11 +1,21 @@
 const dom = require('xmldom').DOMParser;
 const xpath = require('xpath');
-const canvas = require('canvas-wrapper');
+// const canvas = require('canvas-wrapper');
+const canvas = require('canvas-api-wrapper');
 const asyncLib = require('async');
 const {
     promisify
 } = require('util');
 const asyncEach = promisify(asyncLib.each);
+
+/******************
+ * Todo:
+ * 
+ * - Get quiz question properties
+ * - Delete quiz question
+ * - Create new quiz question with correct answers, dropdown and position
+ * 
+ ******************/
 
 //https://stackoverflow.com/a/14853974
 Array.prototype.equals = function (array) {
@@ -50,21 +60,25 @@ module.exports = (course, stepCallback) => {
          * id of the question it is correct for.
          *********************************************/
         async function updateQuestions(questions, answers) {
-            asyncEach(questions, async (question, i) => {
-                asyncEach(question.answers, async qAnswer => {
-                    asyncEach(answers, async aAnswer => {
-                        // if (qAnswer.id === aAnswer.answerId) {
-                        //     qAnswer.isCorrect = (aAnswer.answer === 'D2L_Correct') ? true : false;
-                        // }
+            // asyncEach(answers, async answer => {
+            //     let answersArray = [];
+            //     asyncEach(questions, async question => {
+            //         asyncEach(question.questions, async qQuestion => {
+            //             if (qQuestion.id === answer.questionId && answer.answer === 'D2L_Correct') {
+            //                 asyncEach(question.answers, a => {
+            //                     if (a.id === answer.answerId) {
+            //                         answersArray.push({
+            //                             'id': answer.answerId,
+            //                             'text': a.answer
+            //                         });
+            //                     }
+            //                 });
 
-                        if (qAnswer.id === aAnswer.answerId &&
-                            aAnswer.answer === 'D2L_Correct') {
-
-                            qAnswer.matchQuestion = question.question[i].id;
-                        }
-                    });
-                });
-            });
+            //                 if (answersArray.length > 0) qQuestion.matchAnswerId = answersArray
+            //             }
+            //         });
+            //     });
+            // });
 
             return questions;
         }
@@ -244,10 +258,7 @@ module.exports = (course, stepCallback) => {
             // gets all of the questions and answers
             const xpathAnswersTextSelector = '//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../presentation/flow/response_grp';
 
-            // gets all of the QUES IDs
-            const xpathID = '//fieldlabel[text()="qmd_questiontype"]/../fieldentry[text()="Matching"]/../../../../presentation/flow/response_grp/render_choice/flow_label/response_label/@ident';
-
-            await asyncEach(xmlData, async xml => {
+            return [await asyncEach(xmlData, async xml => {
                 let doc = new dom().parseFromString(xml);
 
                 // let quizTitle = xpath.select(xpathQuizTitleSelector, doc)[0].value;
@@ -257,207 +268,283 @@ module.exports = (course, stepCallback) => {
                 let questions = createObj(quizQuestionsArray.map(nodie => extraction(nodie)), doc);
                 let answers = identifyAnswers(doc);
 
-                //testing final result -- will be removed
-                let finalArray = JSON.stringify(await updateQuestions(questions, answers));
+                // let finalArray = JSON.stringify(await updateQuestions(questions, answers));
 
-                console.log(finalArray);
-            });
+                return {
+                    'questions': questions,
+                    'answerKey': answers
+                };
+            })];
         };
 
-        /*********************************************
-         * getQuizzes
-         * Retrieves a list of quizzes in a course and
-         * builds an object array based on each quiz
-         **********************************************/
-        function getQuizzes(getQuizzesCallback) {
-            canvas.getQuizzes(course.info.canvasOU, (getQuizzesErr, quizList) => {
-                if (getQuizzesErr) {
-                    getQuizzesCallback(getQuizzesErr);
-                    return;
-                } else {
-                    course.message(`Successfully retrieved ${quizList.length} quizzes.`);
-                    getQuizzesCallback(null, quizList);
-                    return;
-                }
-            }, (err) => {
-                if (err) {
-                    getQuizzesCallback(err);
-                    return;
-                }
-            });
+        async function findCorrectMatch(nodes, answerText) {
+
         }
 
-        /*********************************************
-         * filterQuizQuestions
-         * Goes through the question and works with
-         * the match questions.
-         **********************************************/
-        function filterQuizQuestions(quizzes, filterQuizQuestionsCallback) {
-            // question types we want to work with
-            var questionTypes = [
+        async function retrieveQuizzes() {
+            return canvas.get(`/api/v1/courses/${course.info.canvasOU}/quizzes`);
+        }
+
+        async function fixQuizzes() {
+            let quizzes = await retrieveQuizzes();
+            let questionTypes = [
                 'matching_question'
             ];
+            // let nodes = await getLabels();
 
-            asyncLib.eachSeries(quizzes, (quiz, eachSeriesCallback) => {
-                //these doesn't need to be reset for each question but it needs to be reset for each quiz
-                var quizTitle = quiz.title;
-                var isMultipleAnswersSame = false;
-                var avoidDuplicateQuestions = [];
-                var distractorsArray = [];
+            await asyncEach(quizzes, async quiz => {
+                let questions = await canvas.get(`/api/v1/courses/${course.info.canvasOU}/quizzes/${quiz.id}/questions`);
 
-                canvas.getQuizQuestions(course.info.canvasOU, quiz.id, (getErr, questions) => {
-                    if (getErr) {
-                        filterQuizQuestionsCallback(getErr);
-                        return;
-                    } else {
-                        // go through every quiz question
-                        asyncLib.each(questions, (question, eachCallback) => {
-                            // we do this to ensure that the arrays and string are cleared every time we execute this function
-                            var answersArray = []; // for answers array object in QuizQuestion
-                            var matchingArray = []; // array of objects for QuizQuestion
-                            var distractors = ''; // string for all incorrect answers in the dropdown
-                            // var warn = false;            // for tap/testing
+                await asyncEach(questions, async question => {
+                    let answersArray = [];
+                    let matchesArray = [];
+                    if (questionTypes.includes(question.question_type)) {
+                        let answers = question.answers;
+                        let matches = question.matches;
 
-                            // we have found a question that is part of questionType array
-                            // we switch the question and answer here
-                            if (questionTypes.includes(question.question_type)) {
-                                question.answers.forEach(answer => {
-                                    /* if there are more questions than answers, this is necessary
-                                    so we don't accidentally create blank question(s) */
-                                    if (answer.right != null) {
-                                        // multiple questions have the same answer
-                                        if (question.answers.length < question.matches.length) {
+                        await asyncEach(answers, async answer => {
+                            let newLeft = answer.right;
+                            let newRight = answer.left;
 
-                                            // set to true for future warning
-                                            isMultipleAnswersSame = true;
-
-                                            //ensure that we get ALL of the options in the dropdown
-                                            question.answers.filter(answer => {
-                                                if (!distractorsArray.includes(answer.left)) {
-                                                    distractors += `${answer.left}\n`;
-                                                    distractorsArray.push(answer.left);
-                                                }
-                                            });
-
-                                            // for matching part of QuizQuestion object
-                                            var newMatchObj = {
-                                                'match_id': answer.match_id, // id for correct match
-                                                'text': answer.left // part of dropdown for the correct answer
-                                            };
-
-                                            //for answers part of QuizQuestion object
-                                            for (i in question.matches) {
-                                                //ensure that we avoid duplicate questions
-                                                if (!avoidDuplicateQuestions.includes(question.matches[i].text)) {
-                                                    var obj = {
-                                                        'answer_text': answer.text, //text of answer
-                                                        'id': answer.id, //id of answer
-                                                        'answer_match_left': question.matches[i].text, //the swapping happens here
-                                                        'answer_match_right': newMatchObj.text //the swapping ALSO happens here
-                                                    };
-
-                                                    answersArray.push(obj);
-                                                    matchingArray.push(newMatchObj);
-                                                    avoidDuplicateQuestions.push(question.matches[i].text);
-                                                }
-                                            }
-                                            //each question has an individual answer.
-                                        } else {
-                                            //for matching part of QuizQuestion object
-                                            var newMatchObj = {
-                                                'match_id': answer.match_id, //id for correct match
-                                                'text': answer.left //part of dropdown for the correct answer
-                                            };
-
-                                            //for answers part of QuizQuestion object
-                                            var obj = {
-                                                'answer_text': answer.text, //text of answer
-                                                'id': answer.id, //id of answer
-                                                'answer_match_left': answer.right, //the swapping happens here
-                                                'answer_match_right': newMatchObj.text //the swapping ALSO happens here
-                                            };
-
-                                            //new lines are delimiter
-                                            distractors += `${answer.left}\n`; //build the string for options that are not correct answers
-                                            matchingArray.push(newMatchObj); //for matches object in QuizQuestion
-                                            answersArray.push(obj); //for answers object in QuizQuestion
-                                        }
-                                    } else {
-                                        distractors += `${answer.left}\n`;
-                                    }
-                                });
-
-                                //output error if bool is true
-                                if (isMultipleAnswersSame) {
-                                    //throw warning so humans can check out the quiz to ensure that there is no bugs and make sure 
-                                    //that all of the answers for the questions are correct.
-                                    course.warning(`You will want to look at quiz: ${quizTitle} at (matching) question ${question.position}. Multiple questions have the same answer.`);
-                                    isMultipleAnswersSame = false;
-                                }
-
-                                //the question and answers has been switched. let's update the question on the quiz while we are at it
-                                canvas.put(`/api/v1/courses/${course.info.canvasOU}/quizzes/${quiz.id}/questions/${question.id}`, {
-                                        'question': {
-                                            'answers': answersArray,
-                                            'matching': matchingArray,
-                                            'matching_answer_incorrect_matches': distractors
-                                        },
-                                    },
-                                    (putErr, results) => {
-                                        if (putErr) {
-                                            eachCallback(putErr);
-                                            return;
-                                        } else {
-                                            course.log('Quiz Question Swapping', {
-                                                'ID': question.id,
-                                                'Title': question.question_name
-                                            });
-
-                                            /*course.info.matchingQuestionsChanged.push({
-                                                'id': q.id,
-                                                'warning': warn
-                                            });*/
-                                            eachCallback(null);
-                                        }
-                                    });
-                            }
+                            answersArray.push({
+                                ...(newLeft && {
+                                    'text': newLeft
+                                }),
+                                'id': answer.id,
+                                ...(answer.match_id && {
+                                    'match_id': answer.match_id
+                                }),
+                                ...(newLeft && {
+                                    'left': newLeft
+                                }),
+                                'right': newRight
+                            });
                         });
 
-                        eachSeriesCallback(null);
+                        await asyncEach(matches, async match => {
+                            await asyncEach(answersArray, async a => {
+                                if (a.match_id == match.match_id) {
+                                    matchesArray.push({
+                                        'match_id': match.match_id,
+                                        'text': a.right
+                                    });
+                                }
+                            });
+                        });
                     }
+
+                    await canvas.put(`/api/v1/courses/${course.info.canvasOU}/quizzes/${quiz.id}/questions/${question.id}`, {
+                        'question': {
+                            'answers': answersArray,
+                            'matches': matchesArray
+                        }
+                    });
+                    // console.log('---------------------------------------------');
+                    // console.log('Quiz Title: ', quiz.title);
+                    // console.log('Answers: ', answersArray);
+                    // console.log('Matches: ', matchesArray);
+                    // console.log('---------------------------------------------');
                 });
-            }, (err) => {
-                if (err) {
-                    filterQuizQuestionsCallback(err);
-                    return;
-                } else {
-                    course.message('Successfully filtered all quiz questions');
-                    filterQuizQuestionsCallback(null);
-                    return;
-                }
             });
         }
 
-        var functions = [
-            getQuizzes,
-            filterQuizQuestions
-        ];
-
-        /************************************************************
-         *                         START HERE                        *
-         ************************************************************/
-        // asyncLib.waterfall(functions, (waterfallErr, results) => {
-        //     if (waterfallErr) {
-        //         course.error(waterfallErr);
-        //         stepCallback(null, course);
-        //     } else {
-        //         course.message('Successfully completed match-question-answers');
-        //         stepCallback(null, course);
-        //     }
-        // });
-        let quizzes = course.content.filter(file => file.name.includes('quiz_d2l_'));
-        let nodes = await getLabels(getXML(quizzes));
-
+        await fixQuizzes();
         stepCallback(null, course);
+
+        // /*********************************************
+        //  * getQuizzes
+        //  * Retrieves a list of quizzes in a course and
+        //  * builds an object array based on each quiz
+        //  **********************************************/
+        // function getQuizzes(getQuizzesCallback) {
+        //     canvas.getQuizzes(course.info.canvasOU, (getQuizzesErr, quizList) => {
+        //         if (getQuizzesErr) {
+        //             getQuizzesCallback(getQuizzesErr);
+        //             return;
+        //         } else {
+        //             course.message(`Successfully retrieved ${quizList.length} quizzes.`);
+        //             getQuizzesCallback(null, quizList);
+        //             return;
+        //         }
+        //     }, (err) => {
+        //         if (err) {
+        //             getQuizzesCallback(err);
+        //             return;
+        //         }
+        //     });
+        // }
+
+        // /*********************************************
+        //  * filterQuizQuestions
+        //  * Goes through the question and works with
+        //  * the match questions.
+        //  **********************************************/
+        // function filterQuizQuestions(quizzes, filterQuizQuestionsCallback) {
+        //     // question types we want to work with
+        //     var questionTypes = [
+        //         'matching_question'
+        //     ];
+
+        //     asyncLib.eachSeries(quizzes, (quiz, eachSeriesCallback) => {
+        //         //these doesn't need to be reset for each question but it needs to be reset for each quiz
+        //         var quizTitle = quiz.title;
+        //         var isMultipleAnswersSame = false;
+        //         var avoidDuplicateQuestions = [];
+        //         var distractorsArray = [];
+
+        //         canvas.getQuizQuestions(course.info.canvasOU, quiz.id, (getErr, questions) => {
+        //             if (getErr) {
+        //                 filterQuizQuestionsCallback(getErr);
+        //                 return;
+        //             } else {
+        //                 // go through every quiz question
+        //                 asyncLib.each(questions, (question, eachCallback) => {
+        //                     // we do this to ensure that the arrays and string are cleared every time we execute this function
+        //                     var answersArray = []; // for answers array object in QuizQuestion
+        //                     var matchingArray = []; // array of objects for QuizQuestion
+        //                     var distractors = ''; // string for all incorrect answers in the dropdown
+        //                     // var warn = false;            // for tap/testing
+
+        //                     // we have found a question that is part of questionType array
+        //                     // we switch the question and answer here
+        //                     if (questionTypes.includes(question.question_type)) {
+        //                         question.answers.forEach(answer => {
+        //                             /* if there are more questions than answers, this is necessary
+        //                             so we don't accidentally create blank question(s) */
+        //                             if (answer.right != null) {
+        //                                 // multiple questions have the same answer
+        //                                 if (question.answers.length < question.matches.length) {
+
+        //                                     // set to true for future warning
+        //                                     isMultipleAnswersSame = true;
+
+        //                                     //ensure that we get ALL of the options in the dropdown
+        //                                      question.answers.filter(answer => {
+        //                                          if (!distractorsArray.includes(answer.left)) {
+        //                                              distractors += `${answer.left}\n`;
+        //                                              distractorsArray.push(answer.left);
+        //                                          }
+        //                                      });
+
+        //                                     // for matching part of QuizQuestion object
+        //                                     var newMatchObj = {
+        //                                         'match_id': answer.match_id, // id for correct match
+        //                                         'text': answer.left // part of dropdown for the correct answer
+        //                                     };
+
+        //                                     //for answers part of QuizQuestion object
+        //                                     for (i in question.matches) {
+        //                                         //ensure that we avoid duplicate questions
+        //                                         if (!avoidDuplicateQuestions.includes(question.matches[i].text)) {
+        //                                             var obj = {
+        //                                                 'answer_text': answer.text, //text of answer
+        //                                                 'id': answer.id, //id of answer
+        //                                                 'answer_match_left': question.matches[i].text, //the swapping happens here
+        //                                                 'answer_match_right': newMatchObj.text //the swapping ALSO happens here
+        //                                             };
+
+        //                                             answersArray.push(obj);
+        //                                             matchingArray.push(newMatchObj);
+        //                                             avoidDuplicateQuestions.push(question.matches[i].text);
+        //                                         }
+        //                                     }
+        //                                     //each question has an individual answer.
+        //                                 } else {
+        //                                     //for matching part of QuizQuestion object
+        //                                     var newMatchObj = {
+        //                                         'match_id': answer.match_id, //id for correct match
+        //                                         'text': answer.left //part of dropdown for the correct answer
+        //                                     };
+
+        //                                     //for answers part of QuizQuestion object
+        //                                     var obj = {
+        //                                         'answer_text': answer.text, //text of answer
+        //                                         'id': answer.id, //id of answer
+        //                                         'answer_match_left': answer.right, //the swapping happens here
+        //                                         'answer_match_right': newMatchObj.text //the swapping ALSO happens here
+        //                                     };
+
+        //                                     //new lines are delimiter
+        //                                     distractors += `${answer.left}\n`; //build the string for options that are not correct answers
+        //                                     matchingArray.push(newMatchObj); //for matches object in QuizQuestion
+        //                                     answersArray.push(obj); //for answers object in QuizQuestion
+        //                                 }
+        //                             } else {
+        //                                 distractors += `${answer.left}\n`;
+        //                             }
+        //                         });
+
+        //                         //output error if bool is true
+        //                         if (isMultipleAnswersSame) {
+        //                             //throw warning so humans can check out the quiz to ensure that there is no bugs and make sure 
+        //                             //that all of the answers for the questions are correct.
+        //                             course.warning(`You will want to look at quiz: ${quizTitle} at (matching) question ${question.position}. Multiple questions have the same answer.`);
+        //                             isMultipleAnswersSame = false;
+        //                         }
+
+        //                         //the question and answers has been switched. let's update the question on the quiz while we are at it
+        //                         canvas.put(`/api/v1/courses/${course.info.canvasOU}/quizzes/${quiz.id}/questions/${question.id}`, {
+        //                                 'question': {
+        //                                     'answers': answersArray,
+        //                                     'matching': matchingArray,
+        //                                     'matching_answer_incorrect_matches': distractors
+        //                                 },
+        //                             },
+        //                             (putErr, results) => {
+        //                                 if (putErr) {
+        //                                     eachCallback(putErr);
+        //                                     return;
+        //                                 } else {
+        //                                     course.log('Quiz Question Swapping', {
+        //                                         'ID': question.id,
+        //                                         'Title': question.question_name
+        //                                     });
+
+        //                                     /*course.info.matchingQuestionsChanged.push({
+        //                                         'id': q.id,
+        //                                         'warning': warn
+        //                                     });*/
+        //                                     eachCallback(null);
+        //                                 }
+        //                             });
+        //                     }
+        //                 });
+
+        //                 eachSeriesCallback(null);
+        //             }
+        //         });
+        //     }, (err) => {
+        //         if (err) {
+        //             filterQuizQuestionsCallback(err);
+        //             return;
+        //         } else {
+        //             course.message('Successfully filtered all quiz questions');
+        //             filterQuizQuestionsCallback(null);
+        //             return;
+        //         }
+        //     });
+        // }
+
+        // var functions = [
+        //     getQuizzes,
+        //     filterQuizQuestions
+        // ];
+
+        // /************************************************************
+        //  *                         START HERE                        *
+        //  ************************************************************/
+        // // asyncLib.waterfall(functions, (waterfallErr, results) => {
+        // //     if (waterfallErr) {
+        // //         course.error(waterfallErr);
+        // //         stepCallback(null, course);
+        // //     } else {
+        // //         course.message('Successfully completed match-question-answers');
+        // //         stepCallback(null, course);
+        // //     }
+        // // });
+        // let quizzes = course.content.filter(file => file.name.includes('quiz_d2l_'));
+        // let nodes = await getLabels(getXML(quizzes));
+
+        // stepCallback(null, course);
     })();
 };
